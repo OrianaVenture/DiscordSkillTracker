@@ -1,82 +1,81 @@
-﻿using BepInEx;
-using DiscordMessenger;
-using System;
-using HarmonyLib;
-using BepInEx.Configuration;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
-using Newtonsoft.Json;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Collections.Generic;
-using ServerSync;
 using System.Reflection;
+using UnityEngine;
+using HarmonyLib;
+using BepInEx;
+using BepInEx.Configuration;
+using BepInEx.Logging;
+
+using DiscordMessenger;
+using ServerSync;
 
 namespace DiscordSkillTracker
 {
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
-
-
     public class SkillTracker : BaseUnityPlugin
     {
-
-        private const string PluginGUID = "com.tonyism1.discordSkillTracker";
+        private const string PluginGUID = "com.tonyism1.DiscordSkillTracker";
         private const string PluginName = "DiscordSkillTracker";
         private const string PluginVersion = "0.1.2";
 
         private static readonly ConfigSync configSync = new(PluginGUID)
         { DisplayName = PluginName, CurrentVersion = PluginVersion, MinimumRequiredVersion = PluginVersion };
 
-        Harmony harmony = new(PluginGUID);
+        private readonly Harmony harmony = new(PluginGUID);
+        
+        public static readonly ManualLogSource SkillTrackerLogger = BepInEx.Logging.Logger.CreateLogSource(PluginName);
 
         private static string ConfigFileName = PluginGUID + ".cfg";
         private static string ConfigFileFullPath = Paths.ConfigPath + Path.DirectorySeparatorChar + ConfigFileName;
 
-        private static ConfigEntry<string> webhookAddress = null!;
-        private static ConfigEntry<string> botAvatar = null!;
-        private static ConfigEntry<string> botName = null!;
+        internal static ConfigEntry<string> webhookAddress = null!;
+        internal static ConfigEntry<string> botAvatar = null!;
+        internal static ConfigEntry<string> botName = null!;
 
-        //static string webhookAddress1 = "https://discord.com/api/webhooks/1016088172339396629/rihfgzKDBcI7i_bKsiA5GUeJ34FnOMTZlxZ6Wj7Obqv7sBKdJzpW19AdEyTjn2szU84T";
         static string botAvatar1 = "https://thumbs.dreamstime.com/b/scandinavian-viking-design-ancient-decorative-dragon-celtic-style-knot-work-illustration-northern-runes-vector-214616877.jpg";
-        static string botName1 = "The Watcher";
 
-        private static dynamic customSkillList;
+        private static Dictionary<string, string> customSkillList = new Dictionary<string, string>();
 
-        /// <summary>
-        /// 
-        /// </summary>
-
-
-        private void Awake()
+        public void Awake()
         {
-            loadJson();
-
+            SkillTrackerLogger.LogInfo("Starting up!");
             #region Configuration
 
-            AddConfig("webhookAddress", "General", "webhookAddress",
-                true, " ", ref webhookAddress);
-            AddConfig("botAvatar", "General", "botAvatar",
-                true, " ", ref botAvatar);
-            AddConfig("botName", "General", "botName",
-                true, " ", ref botName);
+            AddConfig("webhookAddress", "General", "The Discord Webhook Address.",
+                true, "", ref webhookAddress);
+            AddConfig("botAvatar", "General", "Avatar to use for the bot.",
+                true, "", ref botAvatar);
+            AddConfig("botName", "General", "Name to use for the bot.",
+                true, "The Watcher", ref botName);
+
+            if (webhookAddress.Value.IsNullOrWhiteSpace())
+            {
+                SkillTrackerLogger.LogWarning("No Webhook Address defined.");
+            }
+
+            if (botAvatar.Value.IsNullOrWhiteSpace())
+            {
+                botAvatar.BoxedValue = botAvatar1;
+            }
 
             #endregion
-            //if(botName.Value == null) { botName.Value = "The Watcher"; }
+
+            loadJson();
 
             Assembly assembly = Assembly.GetExecutingAssembly();
             harmony.PatchAll(assembly);
             SetupWatcher();
         }
 
-        private void OnDestroy()
+        public void OnDestroy()
         {
             Config.Save();
             harmony.UnpatchSelf();
         }
-
-
-        /// <summary>
-        /// 
-        /// </summary>
 
         private void AddConfig<T>(string key, string section, string description, bool synced, T value, ref ConfigEntry<T> configEntry)
         {
@@ -108,40 +107,35 @@ namespace DiscordSkillTracker
             if (!File.Exists(ConfigFileFullPath)) return;
             try
             {
-                Logger.LogInfo("SkillAlert Reloading Config!");
+                SkillTrackerLogger.LogInfo("SkillAlert Reloading Config!");
                 Config.Reload();
             }
             catch
             {
-                Logger.LogError("SkillAlert Reloading Config FAILED!!");
+                SkillTrackerLogger.LogError("SkillAlert Reloading Config FAILED!!");
             }
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-
-        public void loadJson()
+        private void loadJson()
         {
-            StreamReader r = new StreamReader("BepInEx/plugins/DiscordSkillTracker/customSkills.json");
-            string jsonString = r.ReadToEnd();
-            customSkillList = JsonConvert.DeserializeObject(jsonString);
-            Logger.LogInfo($"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            Logger.LogInfo($"XXX                                                       XXX");
-            Logger.LogInfo($"XXX                  DiscordSkillTracker                  XXX");
-            Logger.LogInfo($"XXX                    Loaded!  v0.0.2                    XXX");
-            Logger.LogInfo($"XXX                                                       XXX");
-            Logger.LogInfo($"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-        }
-
-        public static string stripChars(string str)
-        {
-            string[] chars = new string[] { "'", "\"", ":", " " };
-            for (int i = 0; i < chars.Length; i++)
+            try
             {
-                if (str.Contains(chars[i])) { str = str.Replace(chars[i], ""); }
+                using (StreamReader r = new StreamReader(Paths.ConfigPath + Path.DirectorySeparatorChar + "customSkills.json"))
+                {
+                    string jsonString = r.ReadToEnd();
+                    customSkillList = JsonUtility.FromJson<Dictionary<string, string>>(jsonString);
+                    SkillTrackerLogger.LogInfo($"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                    SkillTrackerLogger.LogInfo($"XXX                                                       XXX");
+                    SkillTrackerLogger.LogInfo($"XXX                  DiscordSkillTracker                  XXX");
+                    SkillTrackerLogger.LogInfo($"XXX                    Loaded!  v0.0.2                    XXX");
+                    SkillTrackerLogger.LogInfo($"XXX                                                       XXX");
+                    SkillTrackerLogger.LogInfo($"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                }
             }
-            return str;
+            catch
+            {
+                SkillTrackerLogger.LogError("Could not load customSkills.json, ensure it is in your config path!");
+            }
         }
 
         public static async Task pushDiscord(string pn, string skn, float skl)
@@ -159,8 +153,8 @@ namespace DiscordSkillTracker
                 else { rnk = "Novice"; col = 16776960; }
 
                 new DiscordMessage()
-                    .SetUsername(botName1)
-                    .SetAvatar(botAvatar1)
+                    .SetUsername(botName.Value)
+                    .SetAvatar(botAvatar.Value)
                     .AddEmbed()
                         .SetTimestamp(DateTime.Now)
                         .SetTitle("Skill Increase!")
@@ -173,12 +167,6 @@ namespace DiscordSkillTracker
             });
         }
 
-
-        /// <summary>
-        /// 
-        /// </summary>
-
-
         [HarmonyPatch(typeof(Player), nameof(Player.OnSkillLevelup))]
         public static class Patch_Player_OnSkillLevelup
         {
@@ -187,25 +175,25 @@ namespace DiscordSkillTracker
                 var playerName = __instance.GetPlayerName();
                 var skillName = skill.ToString();
                 var skillLevel = (float)Math.Floor(level);
-                // Check if skillname is a digit
+
+                // Check if skillname is a digit, this indicates a custom skill
                 if (skillName.All(char.IsDigit))
                 {
                     foreach (var item in customSkillList)
                     {
-                        string[] words = item.ToString().Split(':');
-                        string _id = stripChars(words[0]);
-                        string _name = stripChars(words[1]);
+                        string _id = item.Key;
+                        string _name = item.Value;
 
-                        if (skillName == _id) { skillName = _name; break; }
+                        if (skillName.Equals(_id))
+                        { 
+                            skillName = _name; 
+                            break; 
+                        }
                     }
                 }
-                //pushDiscord(playerName, skillName, skillLevel);
+
                 pushDiscord(playerName, skillName, skillLevel).ConfigureAwait(false);
             }
         }
-
-
-
-
     }
 }
